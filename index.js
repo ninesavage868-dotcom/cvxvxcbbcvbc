@@ -1,91 +1,88 @@
-const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require("discord.js");
-require("dotenv").config();
+const readline = require("readline");
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require("discord.js");
 
-// ✅ Role ที่ใช้คำสั่งได้
-const allowedRoles = ["หลวงปู่เค็ม"];
-const bypassRoles = ["หลวงปู่เค็ม"];
-
-// ✅ ID ของ channel ที่จะให้บอทส่งแจ้งผล
-const logChannelId = "1417445694419239014"; // <-- แก้เป็น ID ของ text channel ที่คุณต้องการ
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.MessageContent, 
-  ],
-  partials: [Partials.Channel],
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
 });
 
-client.once("clientReady", () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-});
+// ✅ ถาม Token ตอนรัน
+rl.question("กรุณาใส่ TOKEN ของบอท: ", (token) => {
+  const client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+      GatewayIntentBits.GuildVoiceStates,
+    ],
+  });
 
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
+  // แก้เป็น ID ของช่อง log ที่ต้องการ
+  const logChannelId = "1417445694419239014";
 
-  const { member, guild } = message;
-  const content = message.content.trim();
+  client.once("ready", () => {
+    console.log(`🤖 บอทออนไลน์แล้ว: ${client.user.tag}`);
+  });
 
-  // ✅ เช็ก role ที่ใช้คำสั่งได้
-  if (!member.roles.cache.some(r => allowedRoles.includes(r.name))) return;
+  client.on("messageCreate", async (message) => {
+    if (message.author.bot) return;
 
-  // ✅ ต้องอยู่ในห้องเสียง
-  const channel = member.voice.channel;
-  if (!channel) {
-    if (content === "!lockvc" || content === "!unlockvc") {
-      return message.channel.send("❌ คุณต้องอยู่ในห้องเสียงก่อน");
-    }
-    return;
-  }
+    const args = message.content.trim().split(/ +/g);
+    const command = args.shift().toLowerCase();
 
-  // ✅ สร้าง embed แจ้งผล
-  const embed = new EmbedBuilder()
-    .setTitle("🎵 การจัดการห้องเสียง")
-    .setTimestamp()
-    .setFooter({ text: `โดย ${member.user.tag}` });
-
-  // ✅ ดึง channel ที่ใช้แจ้งผล
-  const logChannel = guild.channels.cache.get(logChannelId);
-
-  if (content === "!lockvc") {
-    try {
-      for (const role of guild.roles.cache.values()) {
-        if (bypassRoles.includes(role.name)) continue;
-        // เห็นห้อง แต่เข้าไม่ได้
-        await channel.permissionOverwrites.edit(role, { Connect: false, ViewChannel: true });
+    // ✅ คำสั่งล็อค
+    if (command === "!lockvc") {
+      if (!message.member.voice.channel) {
+        return message.reply("❌ กรุณาเข้าห้องเสียงก่อนใช้คำสั่งนี้!");
       }
-      embed.setDescription(`🔒 ห้องเสียง **${channel.name}** ถูกล็อคแล้ว!`).setColor("Red");
 
-      // ส่งทั้ง 2 ที่
-      if (logChannel) await logChannel.send({ embeds: [embed] });
-      return message.channel.send({ embeds: [embed] });
+      const channel = message.member.voice.channel;
 
-    } catch (err) {
-      console.error(err);
-      return message.channel.send("❌ ไม่สามารถล็อคห้องได้");
+      await channel.permissionOverwrites.edit(message.guild.roles.everyone, {
+        Connect: false, // 🚫 เข้าไม่ได้
+        ViewChannel: true, // 👀 ยังเห็นห้อง
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor("Red")
+        .setTitle("🔒 ห้องถูกล็อคแล้ว")
+        .setDescription(`ห้อง **${channel.name}** ถูกล็อค ไม่สามารถเข้าร่วมได้`)
+        .setTimestamp();
+
+      await message.reply({ embeds: [embed] });
+      const logChannel = message.guild.channels.cache.get(logChannelId);
+      if (logChannel) logChannel.send({ embeds: [embed] });
     }
-  }
 
-  if (content === "!unlockvc") {
-    try {
-      for (const role of guild.roles.cache.values()) {
-        if (bypassRoles.includes(role.name)) continue;
-        const overwrite = channel.permissionOverwrites.cache.get(role.id);
-        if (overwrite) await overwrite.delete(); // คืนค่า default → เห็น + เข้าได้
+    // ✅ คำสั่งปลดล็อค
+    if (command === "!unlockvc") {
+      if (!message.member.voice.channel) {
+        return message.reply("❌ กรุณาเข้าห้องเสียงก่อนใช้คำสั่งนี้!");
       }
-      embed.setDescription(`🔓 ห้องเสียง **${channel.name}** ถูกปลดล็อคแล้ว!`).setColor("Green");
 
-      // ส่งทั้ง 2 ที่
-      if (logChannel) await logChannel.send({ embeds: [embed] });
-      return message.channel.send({ embeds: [embed] });
+      const channel = message.member.voice.channel;
 
-    } catch (err) {
-      console.error(err);
-      return message.channel.send("❌ ไม่สามารถปลดล็อคห้องได้");
+      await channel.permissionOverwrites.edit(message.guild.roles.everyone, {
+        Connect: true, // ✅ เข้าได้
+        ViewChannel: true, // 👀 เห็นห้อง
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor("Green")
+        .setTitle("🔓 ห้องถูกปลดล็อคแล้ว")
+        .setDescription(`ห้อง **${channel.name}** สามารถเข้าร่วมได้แล้ว`)
+        .setTimestamp();
+
+      await message.reply({ embeds: [embed] });
+      const logChannel = message.guild.channels.cache.get(logChannelId);
+      if (logChannel) logChannel.send({ embeds: [embed] });
     }
-  }
-});
+  });
 
-client.login(process.env.TOKEN);
+  // 🔑 ล็อกอินด้วย token ที่พิมพ์ใน console
+  client.login(token).catch((err) => {
+    console.error("❌ TOKEN ไม่ถูกต้อง:", err.message);
+  });
+
+  rl.close();
+});
